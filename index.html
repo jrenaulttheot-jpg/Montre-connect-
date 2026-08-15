@@ -193,6 +193,20 @@
   footer{margin-top:36px; text-align:center; color:var(--muted); font-size:12px; line-height:1.8;}
   footer a{color:var(--muted); text-decoration:underline;}
   .empty{color:var(--muted); font-size:13px; padding:6px 0;}
+
+  .tiles{display:grid; grid-template-columns:repeat(3,1fr); gap:12px;}
+  .tile{
+    background:var(--panel-2); border:1px solid var(--border); border-radius:12px;
+    padding:18px 10px; text-align:center;
+  }
+  .tile-ico{font-size:22px; margin-bottom:6px;}
+  .tile-val{font-family:var(--mono); font-size:26px; font-weight:700; color:var(--accent);}
+  .tile-lbl{font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.1em; margin-top:2px;}
+  @media(max-width:480px){.tiles{grid-template-columns:1fr 1fr 1fr; gap:8px;} .tile{padding:12px 6px;} .tile-val{font-size:19px;}}
+
+  .assign{display:flex; gap:6px; align-items:center; margin-top:4px; flex-wrap:wrap;}
+  .assign select, .assign input{font-size:11px; padding:5px 7px;}
+  .assign span{font-size:10.5px; color:var(--muted);}
 </style>
 </head>
 <body>
@@ -243,6 +257,33 @@
     </div>
   </div>
 
+  <!-- DASHBOARD -->
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Tableau de bord</h2>
+    </div>
+    <div class="panel-body">
+      <div class="tiles">
+        <div class="tile">
+          <div class="tile-ico">❤️</div>
+          <div class="tile-val" id="tile-bpm">—</div>
+          <div class="tile-lbl">BPM</div>
+        </div>
+        <div class="tile">
+          <div class="tile-ico">👣</div>
+          <div class="tile-val" id="tile-steps">—</div>
+          <div class="tile-lbl">Pas</div>
+        </div>
+        <div class="tile">
+          <div class="tile-ico">🔋</div>
+          <div class="tile-val" id="tile-batt">—</div>
+          <div class="tile-lbl">Batterie</div>
+        </div>
+      </div>
+      <p class="hint">Ces cases se remplissent automatiquement dès qu'un octet est « assigné » depuis une notification reçue plus bas (bouton <b>→ afficher ici</b> à côté de chaque ligne du journal). La batterie se lit toute seule au moment de la connexion.</p>
+    </div>
+  </div>
+
   <!-- EXPLORER -->
   <div class="panel">
     <div class="panel-head">
@@ -278,6 +319,15 @@
     </div>
   </div>
 
+  <div class="panel">
+    <div class="panel-head">
+      <h2>À propos du cadran</h2>
+    </div>
+    <div class="panel-body">
+      <p class="hint" style="margin-top:0;">Changer le cadran (watch face) n'est pas encore intégré ici : ça demande d'envoyer un fichier binaire dans un format propriétaire propre au fabricant, bien plus lourd qu'une simple commande. Même le projet Gadgetbridge, qui documente le reste du protocole, ne le fait pas — il existe seulement des outils externes séparés pour ça (DaFup, extrathundertool). BPM et pas sont réalistes à obtenir via ce site : envoie les presets ci-dessus, regarde ce qui arrive dans le journal, et assigne l'octet qui bouge au bon endroit avec le sélecteur.</p>
+    </div>
+  </div>
+
   <footer>
     Protocole basé sur la documentation communautaire Gadgetbridge (Moyoung/Da Fit).<br>
     Web Bluetooth ne fonctionne que sur Chrome/Edge desktop, Chrome Android, ou Bluefy sur iOS — jamais sur Safari.<br>
@@ -295,8 +345,15 @@
   const SVC_MIBAND_A = 0xfee0;
   const SVC_MIBAND_B = 0xfee1;
   const KNOWN_OPTIONAL_SERVICES = [
-    0xfeea, 0xfee0, 0xfee1, 0xfee7, 0xfee9,
-    'battery_service', 'device_information', 'heart_rate', 'generic_access'
+    '0000feea-0000-1000-8000-00805f9b34fb',
+    '0000fee0-0000-1000-8000-00805f9b34fb',
+    '0000fee1-0000-1000-8000-00805f9b34fb',
+    '0000fee7-0000-1000-8000-00805f9b34fb',
+    '0000fee9-0000-1000-8000-00805f9b34fb',
+    '0000180f-0000-1000-8000-00805f9b34fb',
+    '0000180a-0000-1000-8000-00805f9b34fb',
+    '0000180d-0000-1000-8000-00805f9b34fb',
+    '00001800-0000-1000-8000-00805f9b34fb'
   ];
 
   const NAMED = {
@@ -353,6 +410,12 @@
     return new Uint8Array([0xfe, 0xea, sizeHigh, sizeLow, cmd, ...payload]);
   }
 
+  function setTile(target, value){
+    const id = target === 'bpm' ? 'tile-bpm' : target === 'steps' ? 'tile-steps' : 'tile-batt';
+    const el = $(id);
+    if (el) el.textContent = (target === 'batt' && typeof value === 'string') ? value : value;
+  }
+
   function setStatus(connected){
     $('status-pill').textContent = connected ? 'connecté' : 'déconnecté';
     $('status-pill').classList.toggle('on', connected);
@@ -400,27 +463,29 @@
   async function readStandardInfo(){
     // Battery
     try{
-      const batSvc = await server.getPrimaryService('battery_service');
-      const batChar = await batSvc.getCharacteristic('battery_level');
+      const batSvc = await server.getPrimaryService('0000180f-0000-1000-8000-00805f9b34fb');
+      const batChar = await batSvc.getCharacteristic('00002a19-0000-1000-8000-00805f9b34fb');
       const val = await batChar.readValue();
-      $('info-batt').textContent = val.getUint8(0) + ' %';
+      const pct = val.getUint8(0);
+      $('info-batt').textContent = pct + ' %';
+      setTile('batt', pct + '%');
     }catch(e){ /* pas de service batterie standard */ }
 
     // Device info
     try{
-      const diSvc = await server.getPrimaryService('device_information');
+      const diSvc = await server.getPrimaryService('0000180a-0000-1000-8000-00805f9b34fb');
       try{
-        const manuf = await diSvc.getCharacteristic('manufacturer_name_string');
+        const manuf = await diSvc.getCharacteristic('00002a29-0000-1000-8000-00805f9b34fb');
         const v = await manuf.readValue();
         $('info-manuf').textContent = new TextDecoder().decode(v);
       }catch(e){}
       try{
-        const model = await diSvc.getCharacteristic('model_number_string');
+        const model = await diSvc.getCharacteristic('00002a24-0000-1000-8000-00805f9b34fb');
         const v = await model.readValue();
         $('info-model').textContent = new TextDecoder().decode(v);
       }catch(e){}
       try{
-        const fw = await diSvc.getCharacteristic('firmware_revision_string');
+        const fw = await diSvc.getCharacteristic('00002a26-0000-1000-8000-00805f9b34fb');
         const v = await fw.readValue();
         const txt = new TextDecoder().decode(v);
         $('info-fw').textContent = txt;
@@ -495,11 +560,38 @@
           b.onclick = async () => {
             try{
               await ch.startNotifications();
+
+              // panneau d'assignation (apparaît une fois l'écoute active)
+              const assign = document.createElement('div');
+              assign.className = 'assign';
+              assign.innerHTML = `
+                <span>octet n°</span>
+                <input type="text" class="assign-offset" value="0" style="width:42px;">
+                <select class="assign-target">
+                  <option value="">n'affiche nulle part</option>
+                  <option value="bpm">→ BPM</option>
+                  <option value="steps">→ Pas</option>
+                  <option value="batt">→ Batterie</option>
+                </select>
+              `;
+              row.appendChild(assign);
+              const offsetInput = assign.querySelector('.assign-offset');
+              const targetSelect = assign.querySelector('.assign-target');
+
               ch.addEventListener('characteristicvaluechanged', (ev) => {
                 const v = ev.target.value;
                 out.classList.add('show');
                 out.textContent = bytesToHex(v);
                 log('rx', `${ch.uuid.slice(4,8)} ← ${bytesToHex(v)}`);
+
+                const target = targetSelect.value;
+                if (target){
+                  const off = parseInt(offsetInput.value, 10);
+                  const arr = new Uint8Array(v.buffer);
+                  if (!isNaN(off) && off >= 0 && off < arr.length){
+                    setTile(target, arr[off]);
+                  }
+                }
               });
               b.textContent = 'Écoute active ✓';
               b.disabled = true;
